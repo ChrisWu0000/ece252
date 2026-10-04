@@ -89,10 +89,16 @@ void *realloc( void *ptr, size_t new_size );
 void free( void* p );
 int atoi( const char *s ); /* Convert string to int */
 int printf( const char * fmt, ... ); /* %d int, %lu unsigned long, %f double,  %s string, \n newline, ...=args */
+int sprintf( char * buffer, const char * fmt, ... ); /* As printf, but writes to buffer; returns chars written */
+int puts( const char * string ); /* Write string, plus a newline, to stdout */
 void* memcpy( void *destination, const void *source, size_t num_bytes ); /* Returns destination */
 void *memset( void *mem, int value, size_t num_bytes ); /* Set memory to value, byte-wise */
 size_t strlen( const char * string ); /* returns length of null-terminated string, not counting the terminator */
+size_t strnlen( const char * string, size_t max_size ); /* As strlen, but returns at most max_size */
 int strncmp ( const char * str1, const char * str2, size_t max_size ); /* return 0 if strings equal */
+char* strerror( int errnum ); /* Text description of an error code, e.g. strerror( errno ) */
+int rand( ); /* Returns a pseudo-random int between 0 and RAND_MAX */
+unsigned int sleep( unsigned int seconds ); /* Suspend this program; returns seconds left if interrupted */
 \end{lstlisting}
 
 \subsubsection*{Files}
@@ -115,7 +121,6 @@ int remove( const char* filename );
 int flock( int file_descriptor, int type ); /* LOCK_EX, LOCK_SH, or LOCK_UN for type */
 int fcntl( int file_descriptor, int command, ... /* struct flock * flockptr */ );
 int lockf( int file_descriptor, int command, off_t length );
-
 struct flock {
   short l_type; /* F_RDLCK, F_WRLCK, or F_UNLCK */
   short l_whence; /* SEEK_SET, SEEK_CUR, or SEEK_END */
@@ -127,7 +132,6 @@ struct flock {
 int inotify_init( ); /* Returns file descriptor referring to the struct */ 
 int inotify_add_watch( int fd, const char* pathname, uint32_t mask );
 int inotify_rm_watch( int fd, uint32_t wd );
-
 struct inotify_event {
   int      wd;       /* Watch descriptor */
   uint32_t mask;     /* Mask describing event */
@@ -167,11 +171,14 @@ For \texttt{open()} the following flags may be used for the \texttt{flags} param
 
 \begin{lstlisting}[language=C]
 pid_t fork( );
+pid_t getpid( ); /* The process ID of the current process */
 pid_t wait( int* status );
 pid_t waitpid( pid_t pid, int *status, int options ); /* 0 for options fine */
+int WEXITSTATUS( int status ); /* The child's exit status */
+int execlp(const char *file, const char *arg, ... /* (char *) NULL */);
 void exit( int status );
 \end{lstlisting}
-
+\newpage
 \subsubsection*{Signals}
 
 \begin{lstlisting}[language=C]
@@ -185,7 +192,9 @@ int sigaddset( sigset_t* set, int signal ); /* Add specified signal to set */
 int sigfillset( sigset_t* set ); /* Add ALL signals to set */
 int sigdelset( sigset_t* set, int signal ); /* Remove specified signal from set */ 
 int sigismember( sigset_t* set, int signal ); /* Returns 1 if true, 0 if false */
-int sigprocmask( int how, const sigset_t * set, sigset_t * old_set ); 
+int sigprocmask( int how, const sigset_t * set, sigset_t * old_set );
+int pthread_sigmask( int how, const sigset_t * set, sigset_t * old_set ); /* Use in a multithreaded program */
+/* For how: SIG_BLOCK adds set to blocked signals; SIG_UNBLOCK removes; SIG_SETMASK replaces */
 \end{lstlisting}
 
 \subsubsection*{Message Queues}
@@ -195,13 +204,10 @@ int msgget( key_t key, int flag );
 int msgsnd( int msqid, const void *ptr, size_t nbytes, int flag );
 ssize_t msgrcv( int msqid, void *ptr, size_t nbytes, long type, int flag );
 int msgctl( int msqid, int command, struct msqid_ds * buf ); /* IPC_RMID for command, NULL for buf */
-
-/* IPC Structure can be any struct you like, as long as the first field is long */
-struct ipc_msg {
+struct ipc_msg { /* IPC Structure can be any struct you like, as long as the first field is long */
   long mtype; /* Message type must be > 0 */
   char something[1]; /* Can be replaced with any type or structure */
 };
-
 \end{lstlisting}
 
 \subsubsection*{Pipes and Shared Memory}
@@ -229,21 +235,37 @@ uint32_t ntohl( uint32_t netint32 ); /* Translate 4 byte int to host format */
 uint16_t ntohs( uint16_t netint16 ); /* Translate 2 byte int to host format */
 int getaddrinfo( const char *node, const char *service, const struct addrinfo *hints, 
     struct addrinfo **res ); /* node = URL or IP, service = port */
+void freeaddrinfo( struct addrinfo *res ); /* Release the list allocated by getaddrinfo */
 int connect( int sockfd, struct sockaddr *addr, socklen_t len );
 int bind( int sockfd, const struct sockaddr *addr, socklen_t addrlen );
 int listen( int sockfd, int backlog );
 int accept( int sockfd, struct sockaddr *addr, socklen_t *len );
 int send( int sockfd, const void* msg, int length, int flags );
 int recv( int sockfd, void * buffer, int length, int flags );
-int sendto( int sfd, const void* msg, int len, unsigned int flags, const struct sockaddr* to, socklen_t tolength );
+int sendto( int sfd, const void* msg, int len, unsigned int flags, const struct sockaddr* to, socklen_t token );
 int recvfrom( int sfd, void* buffer, int len, unsigned int flags, struct sockaddr* from, int* fromlength );
+struct addrinfo {
+  int ai_family;             /* AF_INET for IPv4, AF_INET6 for IPv6, AF_UNSPEC for either */
+  int ai_socktype;           /* SOCK_STREAM for TCP, SOCK_DGRAM for UDP */
+  int ai_protocol;           /* 0 to accept any protocol */
+  int ai_flags;              /* AI_PASSIVE to fill in my own IP address */
+  struct sockaddr* ai_addr;  /* The address itself; cast to struct sockaddr_in* for IPv4 */
+  socklen_t ai_addrlen;      /* Length, in bytes, of ai_addr */
+  struct addrinfo* ai_next;  /* Next result in the list, or NULL */
+};
+struct sockaddr_in { /* IPv4 address; cast to struct sockaddr* when passing to bind/connect/etc. */
+  sa_family_t sin_family;   /* Address family: AF_INET */
+  in_port_t sin_port;       /* Port number, in network format: use htons( ) */
+  struct in_addr sin_addr;  /* IPv4 address: sin_addr.s_addr, network format; INADDR_ANY for any */
+};
 
 CURLcode curl_global_init( long flags ); /* use CURL_GLOBAL_DEFAULT as flags */
 CURL* curl_easy_init( );
 void curl_easy_cleanup( CURL* handle );
 CURLcode curl_easy_setopt( CURL *handle, CURLoption option, parameter ); /* See table below */
 CURLcode curl_easy_perform( CURL * easy_handle );
-CURLcode curl_easy_getinfo( CURL *curl, CURLINFO info, ... );
+CURLcode curl_easy_getinfo( CURL *curl, CURLINFO info, ... ); /* CURLINFO_RESPONSE_CODE (long*), CURLINFO_PRIVATE (char**) */
+const char* curl_easy_strerror( CURLcode error ); /* Text description of the error */
 void curl_global_cleanup( );
 CURLM *curl_multi_init( );
 CURLMcode curl_multi_add_handle( CURLM *multi_handle, CURL *easy_handle );
@@ -254,10 +276,24 @@ CURLMcode curl_multi_wait(CURLM *multi_handle, struct curl_waitfd extra_fds[],
 CURLMsg *curl_multi_info_read( CURLM *multi_handle, int *msgs_in_queue );
 CURLMcode curl_multi_fdset( CURLM *mh, fd_set *rd_fd_set, fd_set *wr_fd_set, fd_set *ex_fd_set, int *max_fd );
 CURLMcode curl_multi_timeout( CURLM *multi_handle, long *timeout );
+CURLMcode curl_multi_cleanup( CURLM *multi_handle );
 size_t write_callback( char *ptr, size_t size, size_t nmemb, void *userdata );
 size_t read_callback( char *buffer, size_t size, size_t nitems, void *inputdata );
+struct CURLMsg { /* Returned by curl_multi_info_read */
+  CURLMSG msg;             /* CURLMSG_DONE if this transfer is finished */
+  CURL* easy_handle;       /* The easy handle this message is about */
+  union {
+    void* whatever;
+    CURLcode result;       /* msg->data.result; CURLE_OK if the transfer succeeded */
+  } data;
+};
+struct curl_waitfd { /* Extra file descriptors for curl_multi_wait; may be NULL/0 if none */
+  curl_socket_t fd;
+  short events;   /* CURL_WAIT_POLLIN, CURL_WAIT_POLLPRI, CURL_WAIT_POLLOUT */
+  short revents;
+};
 \end{lstlisting}
-
+\vspace{-1em}
 Options for \texttt{curl\_easy\_setopt}:\\
 \begin{tabular}{l|l|l}
 	\textbf{CURLoption} & \textbf{Meaning} & \textbf{Parameter} \\ \hline
@@ -268,16 +304,21 @@ Options for \texttt{curl\_easy\_setopt}:\\
 	\texttt{CURLOPT\_READDATA} & Set the read callback data & \texttt{void*} \\ \hline
 	\texttt{CURLOPT\_PUT} & Issue HTTP PUT request & \texttt{1L}\\ \hline
 	\texttt{CURLOPT\_POST} & Issue HTTP POST request & \texttt{1L}\\ \hline
-	\texttt{CURLOPT\_HTTPGET} & Issue HTTP GET request (this is the default, though) & \texttt{1L}\\ 
+	\texttt{CURLOPT\_HTTPGET} & Issue HTTP GET request (this is the default, though) & \texttt{1L}\\ \hline
+	\texttt{CURLOPT\_HEADER} & Include the HTTP response header in the body output & \texttt{1L}\\ \hline
+	\texttt{CURLOPT\_VERBOSE} & Print detailed information about the transfer & \texttt{1L}\\ \hline
+	\texttt{CURLOPT\_PRIVATE} & Store a pointer with the handle; read it back with \texttt{CURLINFO\_PRIVATE} & \texttt{void*}\\
 \end{tabular}
 
-\newpage
+
 \subsubsection*{Threads and Concurrency}
 
 \begin{lstlisting}[language=C]
 pthread_create( pthread_t *thread, const pthread_attr_t *attr, void *(*start_routine)( void * ), void *arg );
 pthread_join( pthread_t thread, void **returnValue );
 pthread_detach( pthread_t thread );
+pthread_attr_init( pthread_attr_t *attributes ); /* Set the attributes to their default values */
+pthread_attr_destroy( pthread_attr_t *attributes );
 pthread_cancel( pthread_t thread );
 pthread_testcancel( ); /* If the thread is cancelled, this function does not return (thread terminated) */
 pthread_setcanceltype( int type, int *oldtype ); /* PTHREAD_CANCEL_DEFERRED or PTHREAD_CANCEL_ASYNCHRONOUS */
@@ -313,15 +354,16 @@ pthread_cond_destroy( pthread_cond_t *cv );
 
 \subsubsection*{Atomic Types}
 Atomic operations are defined on integral or pointer types of length 1, 2, 4, or 8; replace \texttt{type} with that type.
-
 \begin{lstlisting}[language=C]
 type __sync_lock_test_and_set( type *ptr, type value );
 bool __sync_bool_compare_and_swap( type *ptr, type oldval, type newval );
 type __sync_val_compare_and_swap( type *ptr, type oldval, type newval );
 \end{lstlisting}
 
+\vspace{-1em}
 
-The following functions perform the operation and return the \textit{old} value:
+\begin{multicols}{2}
+Perform the operation and return the \textit{old} value:
 \begin{lstlisting}[language=C]
 type __sync_fetch_and_add( type *ptr, type value );
 type __sync_fetch_and_sub( type *ptr, type value );
@@ -331,7 +373,9 @@ type __sync_fetch_and_xor( type *ptr, type value );
 type __sync_fetch_and_nand( type *ptr, type value );
 \end{lstlisting}
 
-The following functions perform the operation and return the \textit{new} value:
+\columnbreak
+
+Perform the operation and return the \textit{new} value:
 \begin{lstlisting}[language=C]
 type __sync_add_and_fetch( type *ptr, type value );
 type __sync_sub_and_fetch( type *ptr, type value );
@@ -340,8 +384,9 @@ type __sync_and_and_fetch( type *ptr, type value );
 type __sync_xor_and_fetch( type *ptr, type value );
 type __sync_nand_and_fetch( type *ptr, type value );
 \end{lstlisting}
+\end{multicols}
 
-
+\newpage
 \subsubsection*{Select, Poll}
 
 \begin{lstlisting}[language=C]
@@ -372,7 +417,6 @@ struct pollfd {
 };
 \end{lstlisting}
 
-\newpage
 \subsubsection*{AIO, Libevent}
 \begin{lstlisting}[language=C]
 struct aiocb {
@@ -384,15 +428,13 @@ struct aiocb {
   struct sigevent aio_sigevent; /* Signal Info */
   int aio_lio_opcode;           /* Operation for List I/O */
 };
-
 struct sigevent {
-  int sigev_notify;                              /* Notify Type */
+  int sigev_notify;                              /* Notify Type: SIGEV_NONE, SIGEV_SIGNAL, or SIGEV_THREAD */
   int sigev_signo;                               /* Signal number */
   union sigval sigev_value;                      /* Notify argument */
   void (*sigev_notify_function) (union sigval);  /* Notify Function */
   pthread_attr_t *sigev_notify_attributes;       /* Notify attributes */
 };
-
 union sigval {
   int sival_int;
   void* sival_ptr;
@@ -414,6 +456,10 @@ void event_config_free( struct event_config* cfg );
 void event_base_free( struct event_base* base );
 typedef void (*event_callback_fn)( evutil_socket_t fd, short what, void* arg );
 struct event* event_new( struct event_base* b, evutil_socket_t fd, short what, event_callback_fn cb, void* arg );
+/* For what, combine with | (bitwise OR); the callback tests them with & (bitwise AND):
+   EV_TIMEOUT 0x01 timeout elapsed      EV_READ 0x02 fd ready to read     EV_WRITE  0x04 fd ready to write
+   EV_SIGNAL  0x08 signal occurred      EV_ET   0x20 edge-triggered       EV_PERSIST 0x10 stay active after firing
+   (without EV_PERSIST the event fires once and becomes non-pending; re-add it with event_add) */
 void event_free( struct event* event );
 int event_add( struct event* ev, const struct timeval* tv );
 int event_del( struct event* ev );
@@ -422,12 +468,14 @@ int event_base_loop( struct event_base *base, int flags );
 int event_base_loopexit( struct event_base* base, const struct timeval* tv );
 int event_base_loopbreak( struct event_base* base );
 void libevent_global_shutdown( );
-struct bufferevent* bufferevent_socket_new( struct event_base* base, evutil_socket_t fd, 
-    enum bufferevent_options options );
+struct bufferevent* bufferevent_socket_new( struct event_base* base, evutil_socket_t fd,
+    enum bufferevent_options options ); /* fd = -1 to connect later; BEV_OPT_CLOSE_ON_FREE for options */
 void bufferevent_free( struct bufferevent* bev );
 
 typedef void ( *bufferevent_data_cb )( struct bufferevent* bev, void* ctx );
 typedef void ( *bufferevent_event_cb )( struct bufferevent* bev, short events, void* ctx );
+/* For events in the callback, test with & (bitwise AND): BEV_EVENT_CONNECTED connection succeeded,
+   BEV_EVENT_ERROR an error occurred, BEV_EVENT_EOF end of file reached, BEV_EVENT_TIMEOUT timed out */
 void bufferevent_setcb( struct bufferevent* bufev, bufferevent_data_cb readcb, bufferevent_data_cb writecb, bufferevent_event_cb eventcb, void* cbarg );
 
 int bufferevent_socket_connect( struct bufferevent* bev, struct sockaddr* address, int addrlen );
