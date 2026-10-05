@@ -1,12 +1,15 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
+#include <limits.h>
 #include <pthread.h>
 #include <unistd.h>
 #include <sys/wait.h>
+#include <sys/mman.h>
 
 #define CITIES_LENGTH 7
 #define NUM_CITIES (CITIES_LENGTH - 1)
+#define NUM_ROUTES 120 // (NUM_CITIES - 1)!
 
 static const char* cities[] = { "Central City", "Starling City", "Gotham City", "Metropolis", "Coast City", "National City" };
 
@@ -67,8 +70,8 @@ void swap(int* a, int* b) {
     *b = tmp;
 }
 
-// Fills out[] with every route (city 0 fixed at both ends); *count is the number stored.
-void generate_permutations(route* r, int left, int right, route* out, int* count) {
+// Stores every route (city 0 fixed at both ends) in out[]; *count is the number stored.
+void permute(route* r, int left, int right, route* out, int* count) {
     if (left == right) {
         memcpy(&out[*count], r, sizeof(route));
         out[*count].total_dist = 0;
@@ -78,27 +81,10 @@ void generate_permutations(route* r, int left, int right, route* out, int* count
 
     for (int i = left; i <= right; i++) {
         swap(&r->cities[left], &r->cities[i]);
-        generate_permutations(r, left + 1, right, out, count);
+        permute(r, left + 1, right, out, count);
         swap(&r->cities[left], &r->cities[i]);
     }
 }
-
-void permute(route* r, int left, int right, route* best) {
-    if (left == right) {
-        calculate_distance(r);
-        if (r->total_dist < best->total_dist) {
-            memcpy(best, r, sizeof(route));
-        }
-
-        return;
-    }
-
-    for (int i = left; i <= right; i++) {
-        swap(&r->cities[left], &r->cities[i]);
-        permute(r, left + 1, right, best);
-        swap(&r->cities[left], &r->cities[i]);
-    }
-}   
 
 void assign_best(route** best, route* candidate) {
     if (*best == NULL) {
@@ -124,10 +110,37 @@ route* find_best_route( ) {
 
     route* best = malloc( sizeof(route) );
     memset( best, 0, sizeof(route) );
-    best->total_dist = 999999;
+    best->total_dist = INT_MAX;
 
-    permute( candidate, 1, 5, best );
+    // Shared so that children's writes to total_dist are visible to the parent
+    route* all = mmap( NULL, NUM_ROUTES * sizeof(route), PROT_READ | PROT_WRITE,
+                       MAP_SHARED | MAP_ANONYMOUS, -1, 0 );
+    if ( all == MAP_FAILED ) {
+        perror( "mmap" );
+        exit( 1 );
+    }
 
+    int count = 0;
+    permute( candidate, 1, 5, all, &count );
+
+    for ( int i = 0; i < count; i++ ) {
+        pid_t pid = fork( );
+        if ( pid < 0 ) {
+            perror( "fork" );
+            exit( 1 );
+        }
+        if ( pid == 0 ) {
+            calculate_distance( &all[i] );
+            _exit( 0 );
+        }
+        wait( NULL );
+
+        if ( all[i].total_dist < best->total_dist ) {
+            memcpy( best, &all[i], sizeof(route) );
+        }
+    }
+
+    munmap( all, NUM_ROUTES * sizeof(route) );
     free( candidate );
     return best;
 }
